@@ -1,0 +1,67 @@
+[project]
+name = "photoscan"
+version = "0.1.0"
+description = "A production-grade document scanning application"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Jules", email = "jules@example.com" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "opencv-python-headless>=4.8.0.0",
+    "numpy>=1.24.0",
+    "pillow>=10.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+gui = [
+    "PySide6>=6.5.0",
+]
+ocr = [
+    "pytesseract>=0.3.10",
+]
+dev = [
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+test = [
+    "pytest>=7.4.0",
+    "pytest-qt>=4.2.0",
+    "pytest-cov>=4.1.0",
+]
+docs = [
+    "mkdocs>=1.5.0",
+]
+packaging = [
+    "pyinstaller>=6.0.0",
+]
+
+[project.scripts]
+photoscan = "photoscan.cli.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/photoscan"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "C4", "SIM", "TID"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+warn_unused_configs = true
