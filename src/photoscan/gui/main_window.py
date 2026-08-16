@@ -2,7 +2,7 @@
 from pathlib import Path
 
 import cv2
-from PySide6.QtCore import QSize, Qt, Slot
+from PySide6.QtCore import QSize, Qt, QTimer, Slot
 from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -59,6 +59,12 @@ class PhotoScanWindow(QMainWindow):
 
         # State
         self.active_worker: ScanWorker | None = None
+        self._workers: set[ScanWorker] = set()
+
+        self._settings_debounce_timer = QTimer(self)
+        self._settings_debounce_timer.setSingleShot(True)
+        self._settings_debounce_timer.setInterval(150)
+        self._settings_debounce_timer.timeout.connect(self._apply_settings_update)
 
     def _push_history(self) -> None:
         """Pushes current project state to undo stack and clears redo stack."""
@@ -257,6 +263,9 @@ class PhotoScanWindow(QMainWindow):
 
     @Slot(int)
     def on_page_selected(self, index: int) -> None:
+        if self._settings_debounce_timer.isActive():
+            self._settings_debounce_timer.stop()
+
         if index < 0 or index >= len(self.project.pages):
             return
 
@@ -271,14 +280,29 @@ class PhotoScanWindow(QMainWindow):
         self.status.showMessage("Scanning & detecting page region in background...")
 
         # Run detection and enhancement asynchronously
-        self.active_worker = ScanWorker(
+        worker = ScanWorker(
             source=page.source_path,
             settings=page.settings,
             corners=page.corners
         )
-        self.active_worker.finished.connect(self.on_scan_completed)
-        self.active_worker.error.connect(self.on_scan_failed)
-        self.active_worker.start()
+        self.active_worker = worker
+        self._workers.add(worker)
+
+        worker.finished.connect(lambda res, w=worker: self._on_worker_done(res, w))
+        worker.error.connect(lambda msg, w=worker: self._on_worker_failed(msg, w))
+        worker.start()
+
+    def _on_worker_done(self, result: ScanResult | None, worker: ScanWorker) -> None:
+        worker.wait()
+        self._workers.discard(worker)
+        if result is not None and worker == self.active_worker:
+            self.on_scan_completed(result)
+
+    def _on_worker_failed(self, error_msg: str, worker: ScanWorker) -> None:
+        worker.wait()
+        self._workers.discard(worker)
+        if worker == self.active_worker:
+            self.on_scan_failed(error_msg)
 
     @Slot(object)
     def on_scan_completed(self, result: ScanResult) -> None:
@@ -306,7 +330,8 @@ class PhotoScanWindow(QMainWindow):
     @Slot(str)
     def on_scan_failed(self, error_msg: str) -> None:
         self.status.showMessage(f"Error scanning page: {error_msg}")
-        QMessageBox.warning(self, "Scanning Failed", f"An error occurred during scanning:\n{error_msg}")
+        msg = f"An error occurred during scanning:\n{error_msg}"
+        QMessageBox.warning(self, "Scanning Failed", msg)
 
     @Slot(object)
     def on_corners_manually_changed(self, corners: OrderedCorners) -> None:
@@ -332,7 +357,12 @@ class PhotoScanWindow(QMainWindow):
         )
 
         self.project.pages[self.current_page_idx].settings = settings
-        self.on_page_selected(self.current_page_idx)
+        self._settings_debounce_timer.start(150)
+
+    @Slot()
+    def _apply_settings_update(self) -> None:
+        if self.current_page_idx >= 0:
+            self.on_page_selected(self.current_page_idx)
 
     @Slot()
     def reset_to_auto(self) -> None:
@@ -476,13 +506,17 @@ class PhotoScanWindow(QMainWindow):
                 exporter.export_single_page(scanned_pages[0], file_path, fmt)
 
             self.status.showMessage("Document exported successfully!")
-            QMessageBox.information(self, "Export Complete", f"Successfully exported scans to:\n{file_path}")
+            msg = f"Successfully exported scans to:\n{file_path}"
+            QMessageBox.information(self, "Export Complete", msg)
         except Exception as e:
             self.status.showMessage("Export failed.")
             QMessageBox.critical(self, "Export Failed", f"Failed to export scanned pages:\n{e}")
 
     def closeEvent(self, event) -> None:
-        if self.active_worker:
-            self.active_worker.cancel()
-            self.active_worker.wait()
+        if self._settings_debounce_timer.isActive():
+            self._settings_debounce_timer.stop()
+        for worker in list(self._workers):
+            worker.cancel()
+            worker.wait()
+        self._workers.clear()
         event.accept()

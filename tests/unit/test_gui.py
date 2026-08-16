@@ -73,3 +73,32 @@ def test_undo_redo_history(qtbot):
     window.redo_action()
     assert len(window.project.pages) == 1
     assert len(window.undo_stack) == 1
+
+def test_rapid_slider_adjustments(qtbot, tmp_path):
+    # Create a small dummy image for testing worker execution
+    img_path = tmp_path / "test_doc.png"
+    img = QImage(100, 100, QImage.Format_RGB888)
+    img.fill(Qt.white)
+    img.save(str(img_path))
+
+    window = PhotoScanWindow()
+    qtbot.addWidget(window)
+
+    page = PageProjectSettings(id="p1", source_path=str(img_path))
+    window.project.pages.append(page)
+    window.current_page_idx = 0
+
+    # Simulate rapid slider changes
+    for val in range(-50, 50, 5):
+        window.slider_brightness.setValue(val)
+        window.slider_contrast.setValue(15)
+
+    # Trigger debounce timer completion
+    if window._settings_debounce_timer.isActive():
+        window._settings_debounce_timer.timeout.emit()
+
+    # Wait until workers finish running
+    qtbot.waitUntil(lambda: len(window._workers) == 0, timeout=3000)
+    assert len(window._workers) == 0
+
+    window.close()
