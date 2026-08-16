@@ -35,21 +35,27 @@ class ScanWorker(QThread):
 
     def run(self) -> None:
         if self._is_cancelled:
+            self.finished.emit(None)
             return
 
         self.progress.emit(20)
         try:
             scanner = DocumentScanner()
             if self._is_cancelled:
+                self.finished.emit(None)
                 return
 
             self.progress.emit(50)
             result = scanner.scan(self.source, settings=self.settings, corners=self.corners)
 
             if self._is_cancelled:
+                self.finished.emit(None)
                 return
 
             self.progress.emit(100)
             self.finished.emit(result)
         except Exception as e:
-            self.error.emit(str(e))
+            if not self._is_cancelled:
+                self.error.emit(str(e))
+            else:
+                self.finished.emit(None)
